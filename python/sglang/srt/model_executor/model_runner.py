@@ -154,6 +154,7 @@ from sglang.srt.utils import (
     is_hip,
     is_host_cpu_arm64,
     is_npu,
+    is_tt,
     log_info_on_rank0,
     monkey_patch_p2p_access_check,
     require_attn_tp_gather,
@@ -182,6 +183,7 @@ from sglang.srt.weight_sync.tensor_bucket import (
 
 _is_hip = is_hip()
 _is_npu = is_npu()
+_is_tt = is_tt()
 _is_cpu_amx_available = cpu_has_amx_support()
 _is_cpu_arm64 = is_host_cpu_arm64()
 
@@ -189,6 +191,11 @@ if _is_npu:
     from sglang.srt.hardware_backend.npu.utils import init_npu_backend
 
     init_npu_backend()
+
+if _is_tt:
+    from sglang.srt.hardware_backend.tt.utils import init_tt_backend
+
+    init_tt_backend()
 
 MLA_ATTENTION_BACKENDS = [
     "aiter",
@@ -732,6 +739,9 @@ class ModelRunner(ModelRunnerKVCacheMixin):
             backend = "gloo"
         elif self.device == "npu":
             backend = "hccl"
+        elif self.device == "tt":
+            # Tenstorrent uses gloo for CPU-based coordination
+            backend = "gloo"
 
         before_avail_memory = get_available_gpu_memory(self.device, self.gpu_id)
         if not self.server_args.enable_p2p_check:

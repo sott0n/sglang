@@ -2777,4 +2777,12 @@ def get_model_loader(
         except ImportError:
             raise ValueError("Failed to import sglang.private.private_model_loader")
 
+    # Check for Tenstorrent device
+    server_args = get_global_server_args()
+    if server_args and server_args.device == "tt":
+        from sglang.srt.model_loader.tt_loader import TTModelLoader
+
+        logger.info("Using TTModelLoader for Tenstorrent device.")
+        return TTModelLoader(load_config)
+
     return DefaultModelLoader(load_config)

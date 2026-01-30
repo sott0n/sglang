@@ -194,6 +194,20 @@ def is_musa() -> bool:
     return hasattr(torch.version, "musa") and torch.version.musa is not None
 
 
+@lru_cache(maxsize=1)
+def is_tt() -> bool:
+    """Check if Tenstorrent device is available via ttnn."""
+    try:
+        import ttnn
+
+        device_ids = ttnn.get_device_ids()
+        return len(device_ids) > 0
+    except ImportError:
+        return False
+    except Exception:
+        return False
+
+
 def is_float4_e2m1fn_x2(dtype) -> bool:
     """Check if dtype is float4_e2m1fn_x2 and CUDA is available."""
     target_dtype = getattr(torch, "float4_e2m1fn_x2", None)
@@ -1748,6 +1762,31 @@ def get_npu_memory_capacity():
         raise ImportError("torch_npu is required when run on npu device.")
 
 
+def get_tt_memory_capacity():
+    """Get Tenstorrent device memory capacity in MB."""
+    try:
+        import ttnn
+
+        device_ids = ttnn.get_device_ids()
+        if not device_ids:
+            raise RuntimeError("No Tenstorrent devices found.")
+        # Open device to query memory info
+        device = ttnn.open_device(device_id=device_ids[0])
+        try:
+            # Get DRAM memory capacity from device
+            # Tenstorrent devices typically have 12GB-16GB DRAM per chip
+            dram_info = device.dram_size_per_channel() * device.num_dram_channels()
+            return dram_info // 1024 // 1024  # unit: MB
+        finally:
+            ttnn.close_device(device)
+    except ImportError:
+        raise ImportError("ttnn is required when running on Tenstorrent device.")
+    except Exception as e:
+        # Fallback: return a default value if we can't query memory
+        logger.warning(f"Could not query TT device memory: {e}. Using default.")
+        return 12 * 1024  # Default 12GB for Wormhole
+
+
 def get_cpu_memory_capacity():
     # Per-rank memory capacity cannot be determined for customized core settings
     if os.environ.get("SGLANG_CPU_OMP_THREADS_BIND", ""):
@@ -1797,6 +1836,8 @@ def get_device_memory_capacity(device: str = None):
         gpu_mem = get_hpu_memory_capacity()
     elif device == "npu":
         gpu_mem = get_npu_memory_capacity()
+    elif device == "tt":
+        gpu_mem = get_tt_memory_capacity()
     elif device == "cpu":
         gpu_mem = get_cpu_memory_capacity()
     elif device == "xpu":
@@ -1911,6 +1952,18 @@ def get_device_name(device_id: int = 0) -> str:
     if hasattr(torch, "npu") and torch.npu.is_available():
         return torch.npu.get_device_name(device_id)
 
+    if is_tt():
+        try:
+            import ttnn
+
+            # Return Tenstorrent device name
+            device_ids = ttnn.get_device_ids()
+            if device_ids:
+                return f"Tenstorrent Device {device_ids[device_id]}"
+        except Exception:
+            pass
+        return "Tenstorrent Device"
+
 
 @lru_cache(maxsize=1)
 def is_habana_available() -> bool:
@@ -1956,7 +2009,12 @@ def get_device(device_id: Optional[int] = None) -> str:
                 "Habana frameworks detected, but failed to import 'habana_frameworks.torch.hpu'."
             )
 
-    raise RuntimeError("No accelerator (CUDA, XPU, HPU, NPU) is available.")
+    if is_tt():
+        if device_id is None:
+            return "tt"
+        return "tt:{}".format(device_id)
+
+    raise RuntimeError("No accelerator (CUDA, XPU, HPU, NPU, TT) is available.")
 
 
 @lru_cache(maxsize=1)

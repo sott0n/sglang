@@ -58,6 +58,7 @@ from sglang.srt.utils.common import (
     is_sm100_supported,
     is_sm120_supported,
     is_triton_kernels_available,
+    is_tt,
     is_valid_ipv6_address,
     json_list_type,
     nullable_str,
@@ -717,6 +718,7 @@ class ServerArgs:
         self._handle_hpu_backends()
         self._handle_cpu_backends()
         self._handle_npu_backends()
+        self._handle_tt_backends()
 
         # Get GPU memory capacity, which is a common dependency for several configuration steps.
         gpu_mem = get_device_memory_capacity(self.device)
@@ -888,6 +890,19 @@ class ServerArgs:
                 logger.warning(
                     "At this moment Ascend platform only support prefill graph compilation with "
                     "piecewise_cuda_graph_compiler='eager', change piecewise_cuda_graph_compiler to 'eager'."
+                )
+                self.piecewise_cuda_graph_compiler = "eager"
+
+    def _handle_tt_backends(self):
+        if self.device == "tt":
+            from sglang.srt.hardware_backend.tt.utils import set_default_server_args
+
+            set_default_server_args(self)
+
+            if self.piecewise_cuda_graph_compiler != "eager":
+                logger.warning(
+                    "At this moment Tenstorrent platform only supports prefill graph compilation with "
+                    "piecewise_cuda_graph_compiler='eager', changing piecewise_cuda_graph_compiler to 'eager'."
                 )
                 self.piecewise_cuda_graph_compiler = "eager"
 
@@ -3088,7 +3103,7 @@ class ServerArgs:
             "--device",
             type=str,
             default=ServerArgs.device,
-            help="The device to use ('cuda', 'xpu', 'hpu', 'npu', 'cpu'). Defaults to auto-detection if not specified.",
+            help="The device to use ('cuda', 'xpu', 'hpu', 'npu', 'tt', 'cpu'). Defaults to auto-detection if not specified.",
         )
         parser.add_argument(
             "--tensor-parallel-size",
